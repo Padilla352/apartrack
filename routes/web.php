@@ -500,5 +500,5 @@ Route::get('/test-event', function () {
 Route::get('/businesses', [UserBusinessController::class, 'index'])->name('user.businesses.index');
 Route::get('/businesses/{id}', [UserBusinessController::class, 'show'])->name('user.businesses.show');
 
-// Modern apartment details route (used in barangay view)
-Route::get('/{barangaySlug}/apartment/{apartmentId}', [ApartmentController::class, 'show'])->name('apartment.details');
+// Modern apartment details route (used in barangay view) - renamed to avoid duplicate name
+Route::get('/{barangaySlug}/apartment/{apartmentId}', [ApartmentController::class, 'show'])->name('barangay.apartment.details');

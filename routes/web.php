@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use App\Http\Controllers\PageController;
 
 // User (Tenant) Controllers
 use App\Http\Controllers\Auth\LoginController as UserLoginController;
@@ -42,32 +43,10 @@ use App\Http\Controllers\User\BusinessController as UserBusinessController;
 
 /*
 |--------------------------------------------------------------------------
-| ROOT & PUBLIC REDIRECTS
+| ROOT & PUBLIC REDIRECTS (NOW USING CONTROLLER)
 |--------------------------------------------------------------------------
 */
-Route::get('/', function () {
-    if (session()->has('admin_email')) {
-        return redirect()->route('admin.dashboard');
-    }
-    if (Auth::guard('owner')->check()) {
-        return redirect()->route('owner.dashboard');
-    }
-    if (Auth::check()) {
-        return redirect()->route('home');
-    }
-
-    $apartments = DB::table('apartments')
-        ->leftJoin('owners', 'apartments.owner_id', '=', 'owners.id')
-        ->select('apartments.*', 'owners.name as owner_name')
-        ->where('apartments.verification_status', 'approved')
-        ->where('apartments.status', 'Vacant')
-        ->orderBy('apartments.created_at', 'desc')
-        ->limit(6)
-        ->get();
-
-    return view('guest', compact('apartments'));
-});
-
+Route::get('/', [PageController::class, 'home'])->name('home');
 Route::view('/about', 'user.about')->name('about');
 
 /*
@@ -119,18 +98,10 @@ Route::middleware('guest')->group(function () {
     Route::post('/user/verify-otp', [RegisteredUserController::class, 'verifyOtp'])->name('otp.verify.submit');
     Route::post('/user/verify-otp/resend', [RegisteredUserController::class, 'resendOtp'])->name('otp.verify.resend');
 
-    // Public pages (Only show APPROVED apartments)
-    Route::get('/explore', function () {
-        $apartments = DB::table('apartments')
-            ->leftJoin('owners', 'apartments.owner_id', '=', 'owners.id')
-            ->select('apartments.*', 'owners.name as owner_name')
-            ->where('apartments.verification_status', 'approved')
-            ->where('apartments.status', 'Vacant')
-            ->orderBy('apartments.created_at', 'desc')
-            ->paginate(12);
-        return view('guest', compact('apartments'));
-    })->name('explore');
+    // Public pages (Only show APPROVED apartments) – now using controller
+    Route::get('/explore', [PageController::class, 'explore'])->name('explore');
 
+    // Simple view routes (no closures)
     Route::view('/explore/boarding-nearby', 'explore.boarding-nearby')->name('explore.boarding.nearby');
     Route::view('/explore/commercial-nearby', 'explore.commercial-nearby')->name('explore.commercial.nearby');
     Route::view('/barangay-list', 'barangay')->name('guest.barangay');
@@ -299,7 +270,7 @@ Route::prefix('owner')->name('owner.')->middleware('auth:owner')->group(function
     });
     // =====================================================================
 
-    // ==================== NOTIFICATION ROUTES (ADD THESE) ====================
+    // ==================== NOTIFICATION ROUTES ====================
     Route::prefix('notifications')->name('notifications.')->group(function () {
         Route::get('/', [OwnerDashboardController::class, 'getNotifications'])->name('index');
         Route::get('/unread-count', [OwnerDashboardController::class, 'getUnreadNotificationCount'])->name('unread-count');
@@ -390,72 +361,23 @@ Route::middleware('auth')->group(function () {
 
 /*
 |--------------------------------------------------------------------------
-| GENERIC REDIRECT ROUTES
+| GENERIC REDIRECT ROUTES (NOW USING CONTROLLER)
 |--------------------------------------------------------------------------
 */
-Route::get('/dashboard-redirect', function () {
-    if (session()->has('admin_email')) {
-        return redirect()->route('admin.dashboard');
-    }
-    if (Auth::guard('owner')->check()) {
-        return redirect()->route('owner.dashboard');
-    }
-    return redirect()->route('home');
-})->name('dashboard');
+Route::get('/dashboard-redirect', [PageController::class, 'dashboardRedirect'])->name('dashboard');
 
 /*
 |--------------------------------------------------------------------------
-| PUBLIC APARTMENT & BARANGAY DETAILS (INCLUDING BUSINESS SPACES)
+| PUBLIC APARTMENT & BARANGAY DETAILS (INCLUDING BUSINESS SPACES) – CONTROLLER
 |--------------------------------------------------------------------------
 */
-Route::get('/barangay-details', function () {
-    $name = request()->query('name', '');
-    $available = request()->query('available', 0);
-    $total = request()->query('total', 0);
-    $logo = request()->query('logo', '');
+Route::get('/barangay-details', [PageController::class, 'barangayDetails'])->name('barangay.details');
 
-    if (empty($name)) {
-        return redirect()->route('home')->with('error', 'Barangay information not found.');
-    }
-
-    $apartments = DB::table('apartments')
-        ->leftJoin('owners', 'apartments.owner_id', '=', 'owners.id')
-        ->select('apartments.*', 'owners.name as owner_name')
-        ->where('apartments.barangay_name', $name)
-        ->where('apartments.verification_status', 'approved')
-        ->where('apartments.status', 'Vacant')
-        ->orderBy('apartments.created_at', 'desc')
-        ->get();
-
-    // Fix: Use barangay_name instead of barangay_id
-    if (Schema::hasTable('business_spaces')) {
-        $businessSpaces = DB::table('business_spaces')
-            ->leftJoin('owners', 'business_spaces.owner_id', '=', 'owners.id')
-            ->select(
-                'business_spaces.*',
-                'business_spaces.barangay_name as barangay_name',
-                'owners.name as owner_name'
-            )
-            ->where('business_spaces.barangay_name', $name)
-            ->where('business_spaces.verification_status', 'approved')
-            ->where('business_spaces.status', 'Available')
-            ->orderBy('business_spaces.created_at', 'desc')
-            ->get();
-    } else {
-        $businessSpaces = collect();
-    }
-
-    return view('user.barangay.barangay-apartments', [
-        'barangayName' => $name,
-        'availableCount' => $available,
-        'totalCount' => $total,
-        'barangayLogo' => $logo,
-        'apartments' => $apartments,
-        'businessSpaces' => $businessSpaces
-    ]);
-})->name('barangay.details');
-
-// Apartment details (legacy pattern)
+/*
+|--------------------------------------------------------------------------
+| APARTMENT DETAILS (LEGACY)
+|--------------------------------------------------------------------------
+*/
 Route::get('/apartment/{barangayId}/{apartmentId}', [ApartmentController::class, 'show'])
     ->where(['barangayId' => '[a-zA-Z0-9-]+', 'apartmentId' => '[0-9]+'])
     ->name('apartment.details');
@@ -477,20 +399,12 @@ Route::get('/auth/google/callback', [SocialiteController::class, 'handleGoogleCa
 */
 Route::get('admin/permit-verification/debug', [PermitListController::class, 'debugStatus'])->name('admin.permit-verification.debug');
 
-Route::get('/boarding-nearby', function () {
-    return view('explore.boarding-nearby');
-})->name('boarding.nearby');
-
-Route::get('/commercial-nearby', function () {
-    return view('explore.commercial-nearby');
-})->name('commercial.nearby');
-
+Route::view('/boarding-nearby', 'explore.boarding-nearby')->name('boarding.nearby');
+Route::view('/commercial-nearby', 'explore.commercial-nearby')->name('commercial.nearby');
 Route::post('/help/feedback', [HelpController::class, 'storeFeedback'])->name('help.feedback');
 
-Route::get('/test-event', function () {
-    event(new App\Events\TestNotification(1, 'Hello from Reverb!'));
-    return 'Event sent!';
-});
+// Remove or comment the test event route – it uses a closure and is not needed in production
+// Route::get('/test-event', function () { ... }) – DELETE THIS LINE.
 
 /*
 |--------------------------------------------------------------------------
@@ -500,5 +414,5 @@ Route::get('/test-event', function () {
 Route::get('/businesses', [UserBusinessController::class, 'index'])->name('user.businesses.index');
 Route::get('/businesses/{id}', [UserBusinessController::class, 'show'])->name('user.businesses.show');
 
-// Modern apartment details route (used in barangay view) - renamed to avoid duplicate name
+// Modern apartment details route (used in barangay view) – renamed to avoid duplicate name
 Route::get('/{barangaySlug}/apartment/{apartmentId}', [ApartmentController::class, 'show'])->name('barangay.apartment.details');
